@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Suika Game Clone</title>
+<style>
+  body {
+    margin: 0;
+    padding: 0;
+    background: #000;
+    overflow: hidden;
+  }
+  canvas {
+    display: block;
+    margin: 0 auto;
+    background-size: cover;
+    background-position: center;
+  }
+</style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+<script>
+// ------------------------------
+// CONFIG (EDITABLE)
+// ------------------------------
+const AVATAR_LEVELS = [
+  { r: 20, img: "avatar/face1.jpg" },
+  { r: 35, img: "avatar/face2.jpg" },
+  { r: 50, img: "avatar/face3.jpg" },
+  { r: 70, img: "avatar/face4.jpg" },
+  { r: 85, img: "avatar/face5.jpg" },
+  { r: 100, img: "avatar/face6.jpg" }
+];
+
+// Background placeholder — replace 'background.jpg' with your own image
+const BACKGROUND_IMG = './avatar/karagol.jpg';
+
+// ------------------------------
+// BASIC SETUP
+// ------------------------------
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+canvas.width = 500;
+canvas.height = 800;
+canvas.style.backgroundImage = `url(${BACKGROUND_IMG})`;
+
+const Engine = Matter.Engine,
+      Render = Matter.Render,
+      World = Matter.World,
+      Bodies = Matter.Bodies,
+      Body = Matter.Body,
+      Events = Matter.Events;
+
+const engine = Engine.create();
+engine.gravity.y = 1;
+
+let world = engine.world;
+let objects = [];
+let currentLevel = 0;
+let currentAvatar = null;
+let mouseX = canvas.width / 2;
+let gameOver = false;
+
+// Walls (kavanoz)
+const wallLeft = Bodies.rectangle(100, 400, 10, 700, { isStatic: true });
+const wallRight = Bodies.rectangle(400, 400, 10, 700, { isStatic: true });
+const ceiling = Bodies.rectangle(250, 50, 300, 10, { isStatic: true });
+
+// Floor (static grill)
+const floor = Bodies.rectangle(250, 760, 350, 20, { isStatic: true });
+
+World.add(world, [wallLeft, wallRight, ceiling, floor]);
+
+// ------------------------------
+// LOAD IMAGES OR FALLBACK
+// ------------------------------
+const loadedImages = [];
+AVATAR_LEVELS.forEach((lvl, i) => {
+  const img = new Image();
+  img.src = lvl.img;
+  loadedImages[i] = img;
+});
+
+// ------------------------------
+// SPAWN AVATAR
+// ------------------------------
+function spawnAvatar() {
+  currentLevel = Math.floor(Math.random() * 2); // small levels to start
+  const r = AVATAR_LEVELS[currentLevel].r;
+  currentAvatar = Bodies.circle(mouseX, 120, r, {
+    restitution: 0.2,
+    friction: 0.2,
+  });
+  currentAvatar.level = currentLevel;
+  World.add(world, currentAvatar);
+}
+spawnAvatar();
+
+// ------------------------------
+// MERGE LOGIC
+// ------------------------------
+Events.on(engine, 'collisionStart', event => {
+  const pairs = event.pairs;
+  for (const p of pairs) {
+    const A = p.bodyA;
+    const B = p.bodyB;
+    if (A.level !== undefined && B.level !== undefined) {
+      if (A.level === B.level && A.level < AVATAR_LEVELS.length - 1) {
+        merge(A, B);
+      }
+    }
+  }
+});
+
+function merge(A, B) {
+  const newLevel = A.level + 1;
+  const cfg = AVATAR_LEVELS[newLevel];
+  const x = (A.position.x + B.position.x) / 2;
+  const y = (A.position.y + B.position.y) / 2;
+
+  World.remove(world, A);
+  World.remove(world, B);
+
+  const newBall = Bodies.circle(x, y, cfg.r, {
+    restitution: 0.2,
+    friction: 0.2,
+  });
+  newBall.level = newLevel;
+  World.add(world, newBall);
+}
+
+// ------------------------------
+// INPUT
+// ------------------------------
+canvas.addEventListener('mousemove', e => {
+  const rect = canvas.getBoundingClientRect();
+  mouseX = e.clientX - rect.left;
+});
+
+canvas.addEventListener('mousedown', () => {
+  if (!gameOver && currentAvatar) {
+    currentAvatar = null;
+    spawnAvatar();
+  }
+});
+
+// ------------------------------
+// GAME OVER CHECK
+// ------------------------------
+function checkGameOver() {
+  for (const body of world.bodies) {
+    if (body.level !== undefined && body.position.y < 80) {
+      gameOver = true;
+      break;
+    }
+  }
+}
+
+// ------------------------------
+// DRAW GRILL + FIRE
+// ------------------------------
+function drawFire() {
+  const grd = ctx.createRadialGradient(250, 780, 20, 250, 780, 150);
+  grd.addColorStop(0, `rgba(255, ${100 + Math.random()*50}, 0, 1)`);
+  grd.addColorStop(1, 'rgba(80, 0, 0, 0.2)');
+  ctx.fillStyle = grd;
+  ctx.fillRect(100, 720, 300, 100);
+}
+
+function drawGrill() {
+  ctx.strokeStyle = 'rgba(180,180,180,0.9)';
+  ctx.lineWidth = 3;
+  for (let i = 110; i <= 390; i += 20) {
+    ctx.beginPath();
+    ctx.moveTo(i, 720);
+    ctx.lineTo(i, 760);
+    ctx.stroke();
+  }
+  ctx.beginPath();
+  ctx.moveTo(110, 740);
+  ctx.lineTo(390, 740);
+  ctx.stroke();
+}
+
+// ------------------------------
+// DRAW LOOP
+// ------------------------------
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Fire + grill
+  drawFire();
+  drawGrill();
+
+  // Bodies
+  for (const body of world.bodies) {
+    if (body.level !== undefined) {
+      const lvl = body.level;
+      const cfg = AVATAR_LEVELS[lvl];
+      const img = loadedImages[lvl];
+      const x = body.position.x;
+      const y = body.position.y;
+      const r = cfg.r;
+
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(body.angle);
+
+      if (img.complete && img.naturalWidth > 0) {
+        ctx.drawImage(img, -r, -r, r*2, r*2);
+      } else {
+        ctx.fillStyle = `hsl(${lvl*60}, 80%, 60%)`;
+        ctx.beginPath();
+        ctx.arc(0, 0, r, 0, Math.PI*2);
+        ctx.fill();
+      }
+
+      ctx.restore();
+    }
+  }
+
+  // Preview avatar
+  if (currentAvatar) {
+    Body.setPosition(currentAvatar, { x: mouseX, y: 120 });
+    const lvl = currentAvatar.level;
+    const cfg = AVATAR_LEVELS[lvl];
+    const img = loadedImages[lvl];
+    const r = cfg.r;
+
+    ctx.save();
+    ctx.globalAlpha = 0.7;
+    if (img.complete && img.naturalWidth > 0) {
+      ctx.drawImage(img, mouseX - r, 120 - r, r*2, r*2);
+    } else {
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.beginPath();
+      ctx.arc(mouseX, 120, r, 0, Math.PI*2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  if (!gameOver) checkGameOver();
+
+  if (gameOver) {
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle = '#fff';
+    ctx.font = '48px sans-serif';
+    ctx.fillText('GAME OVER', 130, 400);
+  }
+
+  requestAnimationFrame(draw);
+}
+
+Engine.run(engine);
+draw();
+</script>
+</body>
+</html>
